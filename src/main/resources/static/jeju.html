@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>제주 데이터 허브 - 페이징 서비스</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .table-container {
+            margin-top: 20px;
+            min-height: 400px; /* Add minimum height to prevent layout shifts */
+            overflow-x: auto; /* 모바일에서 테이블 가로 스크롤 가능하도록 */
+        }
+        .filter-container {
+            margin-bottom: 20px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+        .loading-overlay.active {
+            visibility: visible;
+            opacity: 1;
+        }
+        .table-wrapper {
+            position: relative;
+        }
+        .data-summary {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        .nav-tabs {
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background-color: #fff;
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+        }
+        .stat-card h5 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        /* 사용자 수에 따른 색상 스타일 */
+        .user-count {
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            min-width: 80px;
+            text-align: right;
+            transition: all 0.3s ease;
+        }
+        .user-count-low {
+            color: #0d6efd;
+            background-color: rgba(13, 110, 253, 0.1);
+        }
+        .user-count-medium {
+            color: #fd7e14;
+            background-color: rgba(253, 126, 20, 0.1);
+        }
+        .user-count-high {
+            color: #dc3545;
+            background-color: rgba(220, 53, 69, 0.1);
+            min-width: 100px;
+            transform: scale(1.05);
+        }
+        .user-count-very-high {
+            color: #ffffff;
+            background-color: #dc3545;
+            min-width: 120px;
+            transform: scale(1.1);
+            font-weight: 800;
+            box-shadow: 0 2px 5px rgba(220, 53, 69, 0.5);
+        }
+        
+        /* 모바일 반응형 스타일 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            h1 {
+                font-size: 1.8rem;
+            }
+            
+            .filter-container .row .col-md-3 {
+                margin-bottom: 10px;
+            }
+            
+            .table th, .table td {
+                padding: 0.5rem;
+                font-size: 0.9rem;
+            }
+            
+            .user-count {
+                min-width: 60px;
+                padding: 3px 6px;
+                font-size: 0.9rem;
+            }
+            
+            .user-count-high {
+                min-width: 70px;
+            }
+            
+            .user-count-very-high {
+                min-width: 80px;
+            }
+            
+            .pagination {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            
+            .pagination .page-item {
+                margin-bottom: 5px;
+            }
+            
+            .chart-container {
+                height: 250px;
+            }
+            
+            .stat-card .value {
+                font-size: 20px;
+            }
+            
+            /* 모바일에서 중요하지 않은 컬럼 숨기기 */
+            .table .mobile-hide {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">제주 데이터 허브 - 페이징 서비스</h1>
+        
+        <div class="filter-container row">
+            <div class="col-md-3">
+                <label for="startDate" class="form-label">시작일 (YYYYMM)</label>
+                <input type="text" class="form-control" id="startDate" value="201601">
+            </div>
+            <div class="col-md-3">
+                <label for="endDate" class="form-label">종료일 (YYYYMM)</label>
+                <input type="text" class="form-control" id="endDate" value="202201">
+            </div>
+            <div class="col-md-2">
+                <label for="pageSize" class="form-label">페이지 크기</label>
+                <select class="form-select" id="pageSize">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button id="searchBtn" class="btn btn-primary">검색</button>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button id="summaryBtn" class="btn btn-success">데이터 요약</button>
+            </div>
+        </div>
+        
+        <!-- Data Summary Section -->
+        <div id="dataSummary" class="data-summary" style="display: none;">
+            <h3 class="mb-4">데이터 요약</h3>
+            
+            <ul class="nav nav-tabs" id="summaryTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button" role="tab">통계</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="charts-tab" data-bs-toggle="tab" data-bs-target="#charts" type="button" role="tab">차트</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="trends-tab" data-bs-toggle="tab" data-bs-target="#trends" type="button" role="tab">트렌드</button>
+                </li>
+            </ul>
+            
+            <div class="tab-content" id="summaryTabContent">
+                <!-- Statistics Tab -->
+                <div class="tab-pane fade show active" id="stats" role="tabpanel">
+                    <div class="row mt-3">
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <h5>총 데이터 수</h5>
+                                <div class="value" id="totalCount">-</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <h5>평균 사용자 수</h5>
+                                <div class="value" id="avgUserCount">-</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <h5>최대 사용자 수</h5>
+                                <div class="value" id="maxUserCount">-</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-card">
+                                <h5>최소 사용자 수</h5>
+                                <div class="value" id="minUserCount">-</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5>사용자 유형 분포</h5>
+                                <div id="userTypeDistribution"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="stat-card">
+                                <h5>연령대 분포</h5>
+                                <div id="ageGroupDistribution"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Charts Tab -->
+                <div class="tab-pane fade" id="charts" role="tabpanel">
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="chart-container">
+                                <canvas id="userTypeChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="chart-container">
+                                <canvas id="ageGroupChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="chart-container">
+                                <canvas id="genderChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="chart-container">
+                                <canvas id="patternTypeChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trends Tab -->
+                <div class="tab-pane fade" id="trends" role="tabpanel">
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <div class="chart-container" style="height: 400px;">
+                                <canvas id="timeSeriesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-wrapper">
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table class="table table-striped table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>사용자 패턴 유형</th>
+                            <th class="mobile-hide">사용자 유형</th>
+                            <th class="mobile-hide">연령대</th>
+                            <th class="mobile-hide">성별</th>
+                            <th>년월</th>
+                            <th>사용자 수</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataBody">
+                        <!-- Data will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="pagination-container">
+            <nav aria-label="Page navigation">
+                <ul class="pagination" id="pagination">
+                    <!-- Pagination will be generated here -->
+                </ul>
+            </nav>
+        </div>
+        
+        <div class="mt-3">
+            <p id="pageInfo" class="text-muted"></p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            let currentPage = 0;
+            let currentData = null;
+            let allData = []; // Store all fetched data for summary
+            
+            // Initial data load
+            loadData();
+            
+            // Search button click
+            document.getElementById('searchBtn').addEventListener('click', function() {
+                currentPage = 0;
+                allData = []; // Reset all data when search criteria change
+                loadData();
+                document.getElementById('dataSummary').style.display = 'none';
+            });
+            
+            // Page size change
+            document.getElementById('pageSize').addEventListener('change', function() {
+                currentPage = 0;
+                loadData();
+            });
+            
+            // Summary button click
+            document.getElementById('summaryBtn').addEventListener('click', function() {
+                if (allData.length === 0) {
+                    fetchAllData().then(() => {
+                        generateSummary();
+                        document.getElementById('dataSummary').style.display = 'block';
+                    });
+                } else {
+                    generateSummary();
+                    document.getElementById('dataSummary').style.display = 'block';
+                }
+            });
+            
+            function loadData() {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const pageSize = document.getElementById('pageSize').value;
+                
+                // Show loading overlay
+                document.getElementById('loadingOverlay').classList.add('active');
+                
+                // Fetch data
+                fetch(`/jeju/api/data?page=${currentPage}&size=${pageSize}&startDate=${startDate}&endDate=${endDate}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        currentData = data;
+                        renderTable(data.data);
+                        renderPagination(data);
+                        updatePageInfo(data);
+                        
+                        // Hide loading overlay
+                        document.getElementById('loadingOverlay').classList.remove('active');
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        document.getElementById('loadingOverlay').classList.remove('active');
+                        alert('데이터를 불러오는 중 오류가 발생했습니다.');
+                    });
+            }
+            
+            function fetchAllData() {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                
+                // Show loading overlay
+                document.getElementById('loadingOverlay').classList.add('active');
+                
+                // We'll fetch all data in batches
+                return new Promise((resolve, reject) => {
+                    fetchDataBatch(1, 100, startDate, endDate, resolve, reject);
+                });
+            }
+            
+            function fetchDataBatch(number, limit, startDate, endDate, resolve, reject, accumulatedData = []) {
+                fetch(`/jeju/api/data?number=${number}&limit=${limit}&startDate=${startDate}&endDate=${endDate}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        const newData = [...accumulatedData, ...data.data];
+                        
+                        if (data.hasMore && newData.length < data.totCnt) {
+                            // Fetch next batch
+                            fetchDataBatch(number + 1, limit, startDate, endDate, resolve, reject, newData);
+                        } else {
+                            // All data fetched
+                            allData = newData;
+                            document.getElementById('loadingOverlay').classList.remove('active');
+                            resolve(allData);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching all data:', error);
+                        document.getElementById('loadingOverlay').classList.remove('active');
+                        reject(error);
+                    });
+            }
+            
+            function renderTable(items) {
+                const tableBody = document.getElementById('dataBody');
+                
+                // Create a document fragment to batch DOM updates
+                const fragment = document.createDocumentFragment();
+                
+                if (!items || items.length === 0) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td colspan="6" class="text-center">데이터가 없습니다.</td>';
+                    fragment.appendChild(row);
+                } else {
+                    items.forEach(item => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${item.userPatternType}</td>
+                            <td class="mobile-hide">${item.userType}</td>
+                            <td class="mobile-hide">${item.ageGroup}</td>
+                            <td class="mobile-hide">${item.gender}</td>
+                            <td>${item.dtYearMonth}</td>
+                            <td><span class="user-count ${getUserCountClass(item.userCount)}">${item.userCount.toLocaleString()}</span></td>
+                        `;
+                        fragment.appendChild(row);
+                    });
+                }
+                
+                // Clear and update the table body in one operation
+                tableBody.innerHTML = '';
+                tableBody.appendChild(fragment);
+            }
+            
+            function getUserCountClass(userCount) {
+                if (userCount < 100) {
+                    return 'user-count-low';
+                } else if (userCount < 500) {
+                    return 'user-count-medium';
+                } else if (userCount < 1000) {
+                    return 'user-count-high';
+                } else {
+                    return 'user-count-very-high';
+                }
+            }
+            
+            function renderPagination(data) {
+                const pagination = document.getElementById('pagination');
+                
+                // Create a document fragment to batch DOM updates
+                const fragment = document.createDocumentFragment();
+                
+                if (!data || !data.totCnt) {
+                    pagination.innerHTML = '';
+                    return;
+                }
+                
+                const totalItems = data.totCnt;
+                const pageSize = parseInt(document.getElementById('pageSize').value);
+                const totalPages = Math.ceil(totalItems / pageSize);
+                
+                // Previous button
+                const prevLi = document.createElement('li');
+                prevLi.className = `page-item ${currentPage === 0 ? 'disabled' : ''}`;
+                prevLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage - 1}">이전</a>`;
+                fragment.appendChild(prevLi);
+                
+                // Calculate range of page numbers to show
+                let startPage = Math.max(0, currentPage - 2);
+                let endPage = Math.min(totalPages - 1, currentPage + 2);
+                
+                // Ensure we always show 5 page numbers if possible
+                if (endPage - startPage < 4 && totalPages > 5) {
+                    if (startPage === 0) {
+                        endPage = Math.min(4, totalPages - 1);
+                    } else if (endPage === totalPages - 1) {
+                        startPage = Math.max(0, totalPages - 5);
+                    }
+                }
+                
+                // First page
+                if (startPage > 0) {
+                    const firstLi = document.createElement('li');
+                    firstLi.className = 'page-item';
+                    firstLi.innerHTML = `<a class="page-link" href="#" data-page="0">1</a>`;
+                    fragment.appendChild(firstLi);
+                    
+                    if (startPage > 1) {
+                        const ellipsisLi = document.createElement('li');
+                        ellipsisLi.className = 'page-item disabled';
+                        ellipsisLi.innerHTML = `<a class="page-link" href="#">...</a>`;
+                        fragment.appendChild(ellipsisLi);
+                    }
+                }
+                
+                // Page numbers
+                for (let i = startPage; i <= endPage; i++) {
+                    const pageLi = document.createElement('li');
+                    pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+                    pageLi.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i + 1}</a>`;
+                    fragment.appendChild(pageLi);
+                }
+                
+                // Last page
+                if (endPage < totalPages - 1) {
+                    if (endPage < totalPages - 2) {
+                        const ellipsisLi = document.createElement('li');
+                        ellipsisLi.className = 'page-item disabled';
+                        ellipsisLi.innerHTML = `<a class="page-link" href="#">...</a>`;
+                        fragment.appendChild(ellipsisLi);
+                    }
+                    
+                    const lastLi = document.createElement('li');
+                    lastLi.className = 'page-item';
+                    lastLi.innerHTML = `<a class="page-link" href="#" data-page="${totalPages - 1}">${totalPages}</a>`;
+                    fragment.appendChild(lastLi);
+                }
+                
+                // Next button
+                const nextLi = document.createElement('li');
+                nextLi.className = `page-item ${currentPage >= totalPages - 1 || !data.hasMore ? 'disabled' : ''}`;
+                nextLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage + 1}">다음</a>`;
+                fragment.appendChild(nextLi);
+                
+                // Clear and update the pagination in one operation
+                pagination.innerHTML = '';
+                pagination.appendChild(fragment);
+                
+                // Add event listeners to page links
+                pagination.querySelectorAll('.page-link').forEach(link => {
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        if (!this.parentElement.classList.contains('disabled') && !this.parentElement.classList.contains('active')) {
+                            currentPage = parseInt(this.getAttribute('data-page'));
+                            loadData();
+                        }
+                    });
+                });
+            }
+            
+            function updatePageInfo(data) {
+                const pageInfo = document.getElementById('pageInfo');
+                if (!data || !data.totCnt) {
+                    pageInfo.textContent = '데이터가 없습니다.';
+                    return;
+                }
+                
+                const pageSize = parseInt(document.getElementById('pageSize').value);
+                const totalPages = Math.ceil(data.totCnt / pageSize);
+                pageInfo.textContent = `전체 ${data.totCnt.toLocaleString()}개 항목 중 ${currentPage + 1} / ${totalPages} 페이지`;
+            }
+            
+            function generateSummary() {
+                if (allData.length === 0) {
+                    return;
+                }
+                
+                // Calculate basic statistics
+                const totalCount = allData.length;
+                const userCounts = allData.map(item => item.userCount);
+                const avgUserCount = Math.round(userCounts.reduce((a, b) => a + b, 0) / totalCount);
+                const maxUserCount = Math.max(...userCounts);
+                const minUserCount = Math.min(...userCounts);
+                
+                // Update statistics display
+                document.getElementById('totalCount').textContent = totalCount.toLocaleString();
+                document.getElementById('avgUserCount').textContent = avgUserCount.toLocaleString();
+                document.getElementById('maxUserCount').textContent = maxUserCount.toLocaleString();
+                document.getElementById('minUserCount').textContent = minUserCount.toLocaleString();
+                
+                // Generate distribution data
+                generateDistributionData();
+                
+                // Generate charts
+                generateCharts();
+                
+                // Generate time series data
+                generateTimeSeriesChart();
+            }
+            
+            function generateDistributionData() {
+                // User Type Distribution
+                const userTypeDistribution = {};
+                allData.forEach(item => {
+                    if (!userTypeDistribution[item.userType]) {
+                        userTypeDistribution[item.userType] = 0;
+                    }
+                    userTypeDistribution[item.userType] += item.userCount;
+                });
+                
+                // Age Group Distribution
+                const ageGroupDistribution = {};
+                allData.forEach(item => {
+                    if (!ageGroupDistribution[item.ageGroup]) {
+                        ageGroupDistribution[item.ageGroup] = 0;
+                    }
+                    ageGroupDistribution[item.ageGroup] += item.userCount;
+                });
+                
+                // Display distribution data
+                const userTypeEl = document.getElementById('userTypeDistribution');
+                userTypeEl.innerHTML = Object.entries(userTypeDistribution)
+                    .map(([type, count]) => `<div><strong>${type}:</strong> ${count.toLocaleString()}</div>`)
+                    .join('');
+                
+                const ageGroupEl = document.getElementById('ageGroupDistribution');
+                ageGroupEl.innerHTML = Object.entries(ageGroupDistribution)
+                    .map(([age, count]) => `<div><strong>${age}:</strong> ${count.toLocaleString()}</div>`)
+                    .join('');
+            }
+            
+            function generateCharts() {
+                // User Type Chart
+                generatePieChart('userTypeChart', '사용자 유형별 분포', 'userType');
+                
+                // Age Group Chart
+                generatePieChart('ageGroupChart', '연령대별 분포', 'ageGroup');
+                
+                // Gender Chart
+                generatePieChart('genderChart', '성별 분포', 'gender');
+                
+                // Pattern Type Chart
+                generatePieChart('patternTypeChart', '패턴 유형별 분포', 'userPatternType');
+            }
+            
+            function generatePieChart(canvasId, title, property) {
+                const canvas = document.getElementById(canvasId);
+                
+                // Clear any existing chart
+                if (canvas.chart) {
+                    canvas.chart.destroy();
+                }
+                
+                // Prepare data
+                const distribution = {};
+                allData.forEach(item => {
+                    if (!distribution[item[property]]) {
+                        distribution[item[property]] = 0;
+                    }
+                    distribution[item[property]] += item.userCount;
+                });
+                
+                const labels = Object.keys(distribution);
+                const data = Object.values(distribution);
+                
+                // Generate random colors
+                const colors = labels.map(() => {
+                    const r = Math.floor(Math.random() * 200);
+                    const g = Math.floor(Math.random() * 200);
+                    const b = Math.floor(Math.random() * 200);
+                    return `rgba(${r}, ${g}, ${b}, 0.7)`;
+                });
+                
+                // Create chart
+                canvas.chart = new Chart(canvas, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                            },
+                            title: {
+                                display: true,
+                                text: title
+                            }
+                        }
+                    }
+                });
+            }
+            
+            function generateTimeSeriesChart() {
+                const canvas = document.getElementById('timeSeriesChart');
+                
+                // Clear any existing chart
+                if (canvas.chart) {
+                    canvas.chart.destroy();
+                }
+                
+                // Group data by year-month
+                const timeData = {};
+                allData.forEach(item => {
+                    const yearMonth = item.dtYearMonth;
+                    if (!timeData[yearMonth]) {
+                        timeData[yearMonth] = 0;
+                    }
+                    timeData[yearMonth] += item.userCount;
+                });
+                
+                // Sort by year-month
+                const sortedMonths = Object.keys(timeData).sort();
+                const monthlyData = sortedMonths.map(month => timeData[month]);
+                
+                // Format labels (YYYYMM -> YYYY-MM)
+                const formattedLabels = sortedMonths.map(month => {
+                    const year = month.substring(0, 4);
+                    const monthPart = month.substring(4, 6);
+                    return `${year}-${monthPart}`;
+                });
+                
+                // Create chart
+                canvas.chart = new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: formattedLabels,
+                        datasets: [{
+                            label: '월별 사용자 수',
+                            data: monthlyData,
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: '년월'
+                                },
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: '사용자 수'
+                                }
+                            }
+                        },
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: '시간에 따른 사용자 수 변화'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `사용자 수: ${context.raw.toLocaleString()}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
